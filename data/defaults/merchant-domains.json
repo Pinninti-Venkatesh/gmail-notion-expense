@@ -1,0 +1,18 @@
+{
+  "swiggy": ["swiggy.in"],
+  "zomato": ["zomato.com"],
+  "zepto": ["zepto.in", "zeptonow.com"],
+  "blinkit": ["blinkit.com"],
+  "bigbasket": ["bigbasket.com"],
+  "amazon": ["amazon.in", "amazon.com"],
+  "flipkart": ["flipkart.com"],
+  "myntra": ["myntra.com"],
+  "uber": ["uber.com"],
+  "ola": ["olacabs.com"],
+  "makemytrip": ["makemytrip.com"],
+  "bookmyshow": ["bookmyshow.com"],
+  "dominos": ["dominos.co.in"],
+  "dunzo": ["dunzo.com"],
+  "instamart": ["swiggy.in"],
+  "rapido": ["rapido.bike"]
+}

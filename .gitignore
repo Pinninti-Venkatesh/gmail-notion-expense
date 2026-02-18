@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+client_secret*.json
+
+# OAuth tokens and personal data
+data/gmail-token.json
+data/processed-emails.json
+
+# Runtime state — seeded from data/defaults/ on first read.
+# Ignored because the app learns your real senders and merchants into these.
+data/known-senders.json
+data/merchant-domains.json
+data/category-map.json
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+
+# OS
+.DS_Store
+
+# Local editor/agent config
+.claude/settings.local.json
