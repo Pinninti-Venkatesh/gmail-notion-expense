@@ -10,7 +10,10 @@ import {
 } from "../gmail/gmail-client.js";
 import { parseEmail } from "../parsers/parser-registry.js";
 import { categorize } from "../categorizer/categorizer.js";
-import { insertExpense, findExpenseByEmailId } from "../notion/notion-client.js";
+import {
+  insertExpense,
+  findExpenseByEmailId,
+} from "../notion/notion-client.js";
 import { readJSON, writeJSON } from "../utils/state-manager.js";
 import logger from "../utils/logger.js";
 
@@ -32,7 +35,8 @@ export async function processEmails() {
 
   try {
     // Look back 1 hour
-    const afterTimestamp = Date.now() - 2 * 24 * 60 * 60 * 1000;
+    const afterTimestamp = Date.now() - 1 * 24 * 60 * 60 * 1000;
+    // const afterTimestamp = new Date("2026-04-06T00:01:00+05:30").getTime();
     const messages = await fetchNewAlertEmails(afterTimestamp);
 
     if (messages.length === 0) {
@@ -104,7 +108,14 @@ export async function processEmails() {
     logger.info("Poll complete", results);
   } catch (err) {
     logger.error("Poll failed", err.message);
-    results.errors.push({ error: err.message });
+    if (err.message === "invalid_grant") {
+      results.errors.push({
+        error: "invalid_grant",
+        hint: "Gmail token expired. Re-authenticate at /api/auth.",
+      });
+    } else {
+      results.errors.push({ error: err.message });
+    }
   } finally {
     isProcessing = false;
   }
