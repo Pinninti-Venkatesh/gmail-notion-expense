@@ -7,6 +7,16 @@ const { clientId, clientSecret, redirectUri, scopes, tokenPath } = config.gmail;
 
 const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 
+// Persist refreshed tokens so the server doesn't lose them on restart
+oauth2Client.on('tokens', (tokens) => {
+  const existing = fs.existsSync(tokenPath)
+    ? JSON.parse(fs.readFileSync(tokenPath, 'utf-8'))
+    : {};
+  const merged = { ...existing, ...tokens };
+  fs.writeFileSync(tokenPath, JSON.stringify(merged, null, 2), 'utf-8');
+  logger.info('Gmail tokens refreshed and saved');
+});
+
 export function getAuthUrl() {
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',

@@ -46,6 +46,10 @@ router.post('/sync', async (_req, res) => {
 
   try {
     const results = await processEmails();
+    const hasInvalidGrant = results.errors?.some(e => e.error === 'invalid_grant');
+    if (hasInvalidGrant) {
+      return res.status(401).json({ error: 'Gmail token expired. Re-authenticate at /api/auth.', results });
+    }
     res.json({ message: 'Sync complete', results });
   } catch (err) {
     logger.error('Manual sync failed', err.message);
