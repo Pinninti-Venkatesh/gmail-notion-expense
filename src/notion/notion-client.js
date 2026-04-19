@@ -6,33 +6,49 @@ const notion = new Client({ auth: config.notion.apiKey });
 const databaseId = config.notion.databaseId;
 
 export async function insertExpense(expense) {
-  const { merchant, amount, category, date, bank, emailId } = expense;
+  const { merchant, amount, category, date, bank, emailId, paymentType, cardLast4, description } = expense;
+
+  const properties = {
+    Expense: {
+      title: [{ text: { content: merchant } }],
+    },
+    Amount: {
+      number: amount,
+    },
+    Category: {
+      multi_select: [{ name: category }],
+    },
+    Date: {
+      date: { start: date },
+    },
+    'Payment Type': {
+      select: { name: paymentType || 'Credit Card' },
+    },
+    Platform: {
+      select: { name: bank },
+    },
+    Comment: {
+      rich_text: [{ text: { content: `Gmail ID: ${emailId}` } }],
+    },
+  };
+
+  // Add card last 4 digits if available
+  if (cardLast4) {
+    properties['Card'] = {
+      rich_text: [{ text: { content: `XX${cardLast4}` } }],
+    };
+  }
+
+  // Add description if available (from correlated merchant email)
+  if (description) {
+    properties['Description'] = {
+      rich_text: [{ text: { content: description } }],
+    };
+  }
 
   const response = await notion.pages.create({
     parent: { database_id: databaseId },
-    properties: {
-      Expense: {
-        title: [{ text: { content: merchant } }],
-      },
-      Amount: {
-        number: amount,
-      },
-      Category: {
-        multi_select: [{ name: category }],
-      },
-      Date: {
-        date: { start: date },
-      },
-      'Payment Type': {
-        select: { name: 'Credit Card' },
-      },
-      Platform: {
-        select: { name: bank },
-      },
-      Comment: {
-        rich_text: [{ text: { content: `Gmail ID: ${emailId}` } }],
-      },
-    },
+    properties,
   });
 
   logger.info(`Inserted expense into Notion: ${merchant} - ${amount}`);

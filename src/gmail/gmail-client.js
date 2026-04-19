@@ -1,5 +1,7 @@
 import { google } from 'googleapis';
 import { getAuthedClient } from '../auth/gmail-auth.js';
+import { readJSON, writeJSON } from '../utils/state-manager.js';
+import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
 function getGmail() {
@@ -8,15 +10,51 @@ function getGmail() {
   return google.gmail({ version: 'v1', auth });
 }
 
-const BANK_QUERY = [
-  // Replace with the alert addresses your own bank sends from
-  'from:alerts@examplebank.test',
-].join(' OR ');
+// --- Dynamic known senders ---
 
-export async function fetchNewAlertEmails(afterTimestamp) {
-  const gmail = getGmail();
+function loadKnownSenders() {
+  return readJSON(config.paths.knownSenders);
+}
+
+export function addKnownSender(email) {
+  const senders = loadKnownSenders();
+  const lower = email.toLowerCase();
+  if (!senders.includes(lower)) {
+    senders.push(lower);
+    writeJSON(config.paths.knownSenders, senders);
+    logger.info(`Added new known sender: ${lower}`);
+  }
+}
+
+export function getKnownSenders() {
+  return loadKnownSenders();
+}
+
+// --- Email fetching ---
+
+function buildTransactionQuery(afterTimestamp) {
   const afterEpoch = Math.floor(afterTimestamp / 1000);
-  const query = `(${BANK_QUERY}) after:${afterEpoch}`;
+  const knownSenders = loadKnownSenders();
+
+  // Build query: known senders OR broad keyword search for new senders
+  const parts = [];
+
+  if (knownSenders.length > 0) {
+    const senderQuery = knownSenders.map((s) => `from:${s}`).join(' OR ');
+    parts.push(`(${senderQuery})`);
+  }
+
+  // Broad keyword search to discover new transaction senders
+  const keywordQuery = '(subject:(transaction alert OR credit card OR debit card OR spent OR debited OR payment of INR OR payment of Rs))';
+  parts.push(keywordQuery);
+
+  const fullQuery = `(${parts.join(' OR ')}) after:${afterEpoch}`;
+  return fullQuery;
+}
+
+export async function fetchTransactionEmails(afterTimestamp) {
+  const gmail = getGmail();
+  const query = buildTransactionQuery(afterTimestamp);
 
   logger.debug('Gmail query', query);
 
@@ -28,6 +66,71 @@ export async function fetchNewAlertEmails(afterTimestamp) {
 
   return res.data.messages || [];
 }
+
+// --- Correlated merchant email search ---
+
+function loadMerchantDomains() {
+  return readJSON(config.paths.merchantDomains);
+}
+
+export function addMerchantDomain(merchantKeyword, domain) {
+  const domains = loadMerchantDomains();
+  const key = merchantKeyword.toLowerCase();
+  if (!domains[key] || !domains[key].includes(domain)) {
+    domains[key] = domains[key] || [];
+    domains[key].push(domain);
+    writeJSON(config.paths.merchantDomains, domains);
+    logger.info(`Added merchant domain: ${key} → ${domain}`);
+  }
+}
+
+export async function findMerchantEmail(merchantName, transactionDate) {
+  const gmail = getGmail();
+  const domains = loadMerchantDomains();
+  const merchantLower = merchantName.toLowerCase();
+
+  // Find matching domain(s) for this merchant
+  let matchingDomains = [];
+  for (const [keyword, domainList] of Object.entries(domains)) {
+    if (merchantLower.includes(keyword)) {
+      matchingDomains.push(...domainList);
+    }
+  }
+
+  if (matchingDomains.length === 0) {
+    logger.debug(`No known domain for merchant: ${merchantName}`);
+    return null;
+  }
+
+  // Search for emails from merchant within ±2 hours of transaction
+  const txDate = new Date(transactionDate + 'T00:00:00');
+  const afterEpoch = Math.floor((txDate.getTime() - 2 * 60 * 60 * 1000) / 1000);
+  const beforeEpoch = Math.floor((txDate.getTime() + 26 * 60 * 60 * 1000) / 1000);
+
+  const fromQuery = matchingDomains.map((d) => `from:${d}`).join(' OR ');
+  const query = `(${fromQuery}) after:${afterEpoch} before:${beforeEpoch}`;
+
+  logger.debug(`Merchant email search: ${query}`);
+
+  try {
+    const res = await gmail.users.messages.list({
+      userId: 'me',
+      q: query,
+      maxResults: 3,
+    });
+
+    if (!res.data.messages || res.data.messages.length === 0) return null;
+
+    // Return the most recent matching email
+    const email = await getEmailDetails(res.data.messages[0].id);
+    return email;
+  } catch (err) {
+    logger.warn(`Merchant email search failed for ${merchantName}`, err.message);
+    return null;
+  }
+}
+
+// --- Email detail extraction ---
 
 export async function getEmailDetails(messageId) {
   const gmail = getGmail();

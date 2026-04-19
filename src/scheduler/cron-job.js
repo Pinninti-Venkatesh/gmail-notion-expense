@@ -2,14 +2,20 @@ import cron from "node-cron";
 import config from "../config/index.js";
 import { isAuthenticated } from "../auth/gmail-auth.js";
 import {
-  fetchNewAlertEmails,
+  fetchTransactionEmails,
   getEmailDetails,
   extractSenderEmail,
   extractSubject,
   extractEmailBody,
+  addKnownSender,
+  findMerchantEmail,
 } from "../gmail/gmail-client.js";
-import { parseEmail } from "../parsers/parser-registry.js";
-import { categorize } from "../categorizer/categorizer.js";
+import {
+  analyzeTransactionEmail,
+  categorizeTransaction,
+  summarizeOrderEmail,
+} from "../llm/email-analyzer.js";
+import { isOllamaAvailable } from "../llm/ollama-client.js";
 import {
   insertExpense,
   findExpenseByEmailId,
@@ -30,21 +36,36 @@ export async function processEmails() {
     return { skipped: true, reason: "not_authenticated" };
   }
 
+  // Check Ollama availability
+  const ollamaReady = await isOllamaAvailable();
+  if (!ollamaReady) {
+    logger.warn(
+      "Ollama not available, skipping poll. Ensure Ollama is running with phi3 model.",
+    );
+    return { skipped: true, reason: "ollama_unavailable" };
+  }
+
   isProcessing = true;
-  const results = { processed: 0, skipped: 0, failed: 0, errors: [] };
+  const results = {
+    processed: 0,
+    skipped: 0,
+    failed: 0,
+    newSenders: 0,
+    enriched: 0,
+    errors: [],
+  };
 
   try {
-    // Look back 1 hour
-    const afterTimestamp = Date.now() - 1 * 24 * 60 * 60 * 1000;
-    // const afterTimestamp = new Date("2026-04-06T00:01:00+05:30").getTime();
-    const messages = await fetchNewAlertEmails(afterTimestamp);
+    // const afterTimestamp = Date.now() - 1 * 24 * 60 * 60 * 1000;
+    const afterTimestamp = new Date("2026-04-06T00:01:00+05:30").getTime();
+    const messages = await fetchTransactionEmails(afterTimestamp);
 
     if (messages.length === 0) {
-      logger.debug("No new alert emails found");
+      logger.debug("No new emails found");
       return results;
     }
 
-    logger.info(`Found ${messages.length} alert email(s)`);
+    logger.info(`Found ${messages.length} email(s) to analyze`);
 
     const processedIds = new Set(readJSON(config.paths.processedEmails));
 
@@ -62,19 +83,23 @@ export async function processEmails() {
         const subject = extractSubject(email);
         const body = extractEmailBody(email);
 
-        const parsed = parseEmail(sender, subject, body);
+        // LLM analyzes if this is a transaction and extracts details
+        const parsed = await analyzeTransactionEmail(sender, subject, body);
+
         if (!parsed) {
-          logger.warn(`Could not parse email ${messageId}`, {
-            sender,
-            subject: subject.substring(0, 80),
-          });
-          // Mark as processed so we don't retry non-transaction emails forever
+          logger.debug(
+            `Email ${messageId} is not a transaction (sender: ${sender})`,
+          );
           processedIds.add(messageId);
-          results.failed++;
+          results.skipped++;
           continue;
         }
 
-        // Secondary deduplication: check Notion directly in case local state was lost
+        // Auto-learn this sender for future fast-path queries
+        addKnownSender(sender);
+        results.newSenders++;
+
+        // Dedup check against Notion
         const alreadyInserted = await findExpenseByEmailId(messageId);
         if (alreadyInserted) {
           logger.info(`Email ${messageId} already exists in Notion, skipping`);
@@ -83,7 +108,35 @@ export async function processEmails() {
           continue;
         }
 
-        const category = categorize(parsed.merchant);
+        // Try to find a correlated merchant email for richer description
+        let description = null;
+        try {
+          const merchantEmail = await findMerchantEmail(
+            parsed.merchant,
+            parsed.date,
+          );
+          if (merchantEmail) {
+            const merchantBody = extractEmailBody(merchantEmail);
+            description = await summarizeOrderEmail(merchantBody);
+            if (description) {
+              logger.info(
+                `Enriched transaction with order details: ${description.substring(0, 60)}...`,
+              );
+              results.enriched++;
+            }
+          }
+        } catch (err) {
+          logger.debug(
+            `Merchant email enrichment failed for ${parsed.merchant}`,
+            err.message,
+          );
+        }
+
+        // LLM-powered smart categorization (uses description for context)
+        const category = await categorizeTransaction(
+          parsed.merchant,
+          description,
+        );
 
         await insertExpense({
           merchant: parsed.merchant,
@@ -92,6 +145,9 @@ export async function processEmails() {
           date: parsed.date,
           bank: parsed.bank,
           emailId: messageId,
+          paymentType: parsed.paymentType,
+          cardLast4: parsed.cardLast4,
+          description,
         });
 
         processedIds.add(messageId);
@@ -103,7 +159,6 @@ export async function processEmails() {
       }
     }
 
-    // Persist processed IDs
     writeJSON(config.paths.processedEmails, [...processedIds]);
     logger.info("Poll complete", results);
   } catch (err) {

@@ -3,15 +3,21 @@ import { getAuthUrl, handleAuthCallback, isAuthenticated } from '../auth/gmail-a
 import { processEmails } from '../scheduler/cron-job.js';
 import { fetchCategorizedEntries } from '../notion/notion-client.js';
 import { updateCategoryMap, getCategoryMap, reloadCategoryMap } from '../categorizer/categorizer.js';
+import { getKnownSenders, addKnownSender, addMerchantDomain } from '../gmail/gmail-client.js';
+import { isOllamaAvailable } from '../llm/ollama-client.js';
 import logger from '../utils/logger.js';
+import { readJSON } from '../utils/state-manager.js';
+import config from '../config/index.js';
 
 const router = Router();
 
 // Health check
-router.get('/health', (_req, res) => {
+router.get('/health', async (_req, res) => {
+  const ollamaReady = await isOllamaAvailable();
   res.json({
     status: 'ok',
     authenticated: isAuthenticated(),
+    ollamaAvailable: ollamaReady,
     timestamp: new Date().toISOString(),
   });
 });
@@ -83,6 +89,36 @@ router.post('/sync-categories', async (_req, res) => {
 // View current category map
 router.get('/categories', (_req, res) => {
   res.json(getCategoryMap());
+});
+
+// View known transaction senders (auto-learned + seeded)
+router.get('/known-senders', (_req, res) => {
+  res.json(getKnownSenders());
+});
+
+// Manually add a known sender
+router.post('/known-senders', (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Missing "email" in request body' });
+  }
+  addKnownSender(email);
+  res.json({ message: `Added known sender: ${email}`, senders: getKnownSenders() });
+});
+
+// View merchant domain mappings
+router.get('/merchant-domains', (_req, res) => {
+  res.json(readJSON(config.paths.merchantDomains));
+});
+
+// Add a merchant domain mapping
+router.post('/merchant-domains', (req, res) => {
+  const { merchant, domain } = req.body;
+  if (!merchant || !domain) {
+    return res.status(400).json({ error: 'Missing "merchant" and/or "domain" in request body' });
+  }
+  addMerchantDomain(merchant, domain);
+  res.json({ message: `Added domain mapping: ${merchant} → ${domain}` });
 });
 
 export default router;
