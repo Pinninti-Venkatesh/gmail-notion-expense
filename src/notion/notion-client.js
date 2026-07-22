@@ -99,3 +99,43 @@ export async function fetchCategorizedEntries() {
   logger.info(`Fetched ${entries.length} categorized entries from Notion`);
   return entries;
 }
+
+export async function fetchAllExpensesWithEmailIds() {
+  const entries = [];
+  let cursor = undefined;
+
+  do {
+    const response = await notion.databases.query({
+      database_id: databaseId,
+      start_cursor: cursor,
+      page_size: 100,
+    });
+
+    for (const page of response.results) {
+      const props = page.properties;
+      const comment = props.Comment?.rich_text?.[0]?.text?.content || '';
+      const emailIdMatch = comment.match(/Gmail ID: (.+)/);
+      if (!emailIdMatch) continue;
+
+      entries.push({
+        pageId: page.id,
+        emailId: emailIdMatch[1],
+        date: props.Date?.date?.start || null,
+        merchant: props.Expense?.title?.[0]?.text?.content || '',
+      });
+    }
+
+    cursor = response.has_more ? response.next_cursor : undefined;
+  } while (cursor);
+
+  return entries;
+}
+
+export async function updateExpenseDate(pageId, newDate) {
+  await notion.pages.update({
+    page_id: pageId,
+    properties: {
+      Date: { date: { start: newDate } },
+    },
+  });
+}

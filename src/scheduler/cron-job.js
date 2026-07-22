@@ -7,6 +7,7 @@ import {
   extractSenderEmail,
   extractSubject,
   extractEmailBody,
+  extractEmailDate,
   addKnownSender,
   findMerchantEmail,
 } from "../gmail/gmail-client.js";
@@ -19,6 +20,8 @@ import { isOllamaAvailable } from "../llm/ollama-client.js";
 import {
   insertExpense,
   findExpenseByEmailId,
+  fetchAllExpensesWithEmailIds,
+  updateExpenseDate,
 } from "../notion/notion-client.js";
 import { readJSON, writeJSON } from "../utils/state-manager.js";
 import logger from "../utils/logger.js";
@@ -57,7 +60,7 @@ export async function processEmails() {
 
   try {
     // const afterTimestamp = Date.now() - 1 * 24 * 60 * 60 * 1000;
-    const afterTimestamp = new Date("2026-04-06T00:01:00+05:30").getTime();
+    const afterTimestamp = new Date("2026-06-30T00:01:00+05:30").getTime();
     const messages = await fetchTransactionEmails(afterTimestamp);
 
     if (messages.length === 0) {
@@ -66,6 +69,14 @@ export async function processEmails() {
     }
 
     logger.info(`Found ${messages.length} email(s) to analyze`);
+
+    // Log all fetched email subjects for debugging
+    for (const m of messages) {
+      const detail = await getEmailDetails(m.id);
+      const subj = extractSubject(detail);
+      const from = extractSenderEmail(detail);
+      logger.info(`  Fetched: [${m.id}] [${from}] ${subj}`);
+    }
 
     const processedIds = new Set(readJSON(config.paths.processedEmails));
 
@@ -82,6 +93,7 @@ export async function processEmails() {
         const sender = extractSenderEmail(email);
         const subject = extractSubject(email);
         const body = extractEmailBody(email);
+        const emailDate = extractEmailDate(email);
 
         // LLM analyzes if this is a transaction and extracts details
         const parsed = await analyzeTransactionEmail(sender, subject, body);
@@ -113,7 +125,7 @@ export async function processEmails() {
         try {
           const merchantEmail = await findMerchantEmail(
             parsed.merchant,
-            parsed.date,
+            emailDate,
           );
           if (merchantEmail) {
             const merchantBody = extractEmailBody(merchantEmail);
@@ -142,7 +154,7 @@ export async function processEmails() {
           merchant: parsed.merchant,
           amount: parsed.amount,
           category,
-          date: parsed.date,
+          date: emailDate,
           bank: parsed.bank,
           emailId: messageId,
           paymentType: parsed.paymentType,
@@ -175,6 +187,44 @@ export async function processEmails() {
     isProcessing = false;
   }
 
+  return results;
+}
+
+export async function reconcileDates() {
+  if (!isAuthenticated()) {
+    return { error: "Gmail not authenticated" };
+  }
+
+  const entries = await fetchAllExpensesWithEmailIds();
+  logger.info(`Reconciling dates for ${entries.length} Notion entries`);
+
+  const results = { checked: 0, fixed: 0, failed: 0, fixes: [] };
+
+  for (const entry of entries) {
+    results.checked++;
+    try {
+      const email = await getEmailDetails(entry.emailId);
+      const correctDate = extractEmailDate(email);
+
+      if (entry.date !== correctDate) {
+        await updateExpenseDate(entry.pageId, correctDate);
+        logger.info(
+          `Fixed date for "${entry.merchant}": ${entry.date} → ${correctDate}`,
+        );
+        results.fixed++;
+        results.fixes.push({
+          merchant: entry.merchant,
+          oldDate: entry.date,
+          newDate: correctDate,
+        });
+      }
+    } catch (err) {
+      logger.warn(`Failed to reconcile ${entry.emailId}`, err.message);
+      results.failed++;
+    }
+  }
+
+  logger.info(`Date reconciliation complete`, results);
   return results;
 }
 

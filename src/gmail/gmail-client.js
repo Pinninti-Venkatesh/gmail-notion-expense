@@ -1,13 +1,13 @@
-import { google } from 'googleapis';
-import { getAuthedClient } from '../auth/gmail-auth.js';
-import { readJSON, writeJSON } from '../utils/state-manager.js';
-import config from '../config/index.js';
-import logger from '../utils/logger.js';
+import { google } from "googleapis";
+import { getAuthedClient } from "../auth/gmail-auth.js";
+import { readJSON, writeJSON } from "../utils/state-manager.js";
+import config from "../config/index.js";
+import logger from "../utils/logger.js";
 
 function getGmail() {
   const auth = getAuthedClient();
-  if (!auth) throw new Error('Gmail not authenticated. Visit /api/auth first.');
-  return google.gmail({ version: 'v1', auth });
+  if (!auth) throw new Error("Gmail not authenticated. Visit /api/auth first.");
+  return google.gmail({ version: "v1", auth });
 }
 
 // --- Dynamic known senders ---
@@ -40,15 +40,16 @@ function buildTransactionQuery(afterTimestamp) {
   const parts = [];
 
   if (knownSenders.length > 0) {
-    const senderQuery = knownSenders.map((s) => `from:${s}`).join(' OR ');
+    const senderQuery = knownSenders.map((s) => `from:${s}`).join(" OR ");
     parts.push(`(${senderQuery})`);
   }
 
   // Broad keyword search to discover new transaction senders
-  const keywordQuery = '(subject:(transaction alert OR credit card OR debit card OR spent OR debited OR payment of INR OR payment of Rs))';
+  const keywordQuery =
+    "(subject:(transaction alert OR credit card OR debit card OR spent OR debited OR payment of INR OR payment of Rs))";
   parts.push(keywordQuery);
 
-  const fullQuery = `(${parts.join(' OR ')}) after:${afterEpoch}`;
+  const fullQuery = `(${parts.join(" OR ")}) after:${afterEpoch}`;
   return fullQuery;
 }
 
@@ -56,12 +57,12 @@ export async function fetchTransactionEmails(afterTimestamp) {
   const gmail = getGmail();
   const query = buildTransactionQuery(afterTimestamp);
 
-  logger.debug('Gmail query', query);
+  logger.info("Gmail query", query);
 
   const res = await gmail.users.messages.list({
-    userId: 'me',
+    userId: "me",
     q: query,
-    maxResults: 50,
+    maxResults: 500,
   });
 
   return res.data.messages || [];
@@ -103,18 +104,20 @@ export async function findMerchantEmail(merchantName, transactionDate) {
   }
 
   // Search for emails from merchant within ±2 hours of transaction
-  const txDate = new Date(transactionDate + 'T00:00:00');
+  const txDate = new Date(transactionDate + "T00:00:00");
   const afterEpoch = Math.floor((txDate.getTime() - 2 * 60 * 60 * 1000) / 1000);
-  const beforeEpoch = Math.floor((txDate.getTime() + 26 * 60 * 60 * 1000) / 1000);
+  const beforeEpoch = Math.floor(
+    (txDate.getTime() + 26 * 60 * 60 * 1000) / 1000,
+  );
 
-  const fromQuery = matchingDomains.map((d) => `from:${d}`).join(' OR ');
+  const fromQuery = matchingDomains.map((d) => `from:${d}`).join(" OR ");
   const query = `(${fromQuery}) after:${afterEpoch} before:${beforeEpoch}`;
 
   logger.debug(`Merchant email search: ${query}`);
 
   try {
     const res = await gmail.users.messages.list({
-      userId: 'me',
+      userId: "me",
       q: query,
       maxResults: 3,
     });
@@ -125,7 +128,10 @@ export async function findMerchantEmail(merchantName, transactionDate) {
     const email = await getEmailDetails(res.data.messages[0].id);
     return email;
   } catch (err) {
-    logger.warn(`Merchant email search failed for ${merchantName}`, err.message);
+    logger.warn(
+      `Merchant email search failed for ${merchantName}`,
+      err.message,
+    );
     return null;
   }
 }
@@ -135,27 +141,36 @@ export async function findMerchantEmail(merchantName, transactionDate) {
 export async function getEmailDetails(messageId) {
   const gmail = getGmail();
   const res = await gmail.users.messages.get({
-    userId: 'me',
+    userId: "me",
     id: messageId,
-    format: 'full',
+    format: "full",
   });
   return res.data;
 }
 
+export function extractEmailDate(message) {
+  const ts = parseInt(message.internalDate, 10);
+  const d = new Date(ts);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
 export function extractSenderEmail(message) {
   const fromHeader = message.payload.headers.find(
-    (h) => h.name.toLowerCase() === 'from'
+    (h) => h.name.toLowerCase() === "from",
   );
-  if (!fromHeader) return '';
+  if (!fromHeader) return "";
   const match = fromHeader.value.match(/<(.+?)>/);
   return match ? match[1].toLowerCase() : fromHeader.value.toLowerCase();
 }
 
 export function extractSubject(message) {
   const subjectHeader = message.payload.headers.find(
-    (h) => h.name.toLowerCase() === 'subject'
+    (h) => h.name.toLowerCase() === "subject",
   );
-  return subjectHeader ? subjectHeader.value : '';
+  return subjectHeader ? subjectHeader.value : "";
 }
 
 export function extractEmailBody(message) {
@@ -168,18 +183,18 @@ export function extractEmailBody(message) {
 
   // Multipart — prefer text/plain, fallback to text/html
   if (payload.parts) {
-    const textPart = findPart(payload.parts, 'text/plain');
+    const textPart = findPart(payload.parts, "text/plain");
     if (textPart && textPart.body && textPart.body.data) {
       return decodeBase64(textPart.body.data);
     }
 
-    const htmlPart = findPart(payload.parts, 'text/html');
+    const htmlPart = findPart(payload.parts, "text/html");
     if (htmlPart && htmlPart.body && htmlPart.body.data) {
       return stripHtml(decodeBase64(htmlPart.body.data));
     }
   }
 
-  return '';
+  return "";
 }
 
 function findPart(parts, mimeType) {
@@ -194,20 +209,27 @@ function findPart(parts, mimeType) {
 }
 
 function decodeBase64(data) {
-  return Buffer.from(data, 'base64').toString('utf-8');
+  return Buffer.from(data, "base64").toString("utf-8");
 }
 
 function stripHtml(html) {
   return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/tr>/gi, "\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

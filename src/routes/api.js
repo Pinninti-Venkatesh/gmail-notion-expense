@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getAuthUrl, handleAuthCallback, isAuthenticated } from '../auth/gmail-auth.js';
-import { processEmails } from '../scheduler/cron-job.js';
+import { processEmails, reconcileDates } from '../scheduler/cron-job.js';
 import { fetchCategorizedEntries } from '../notion/notion-client.js';
 import { updateCategoryMap, getCategoryMap, reloadCategoryMap } from '../categorizer/categorizer.js';
 import { getKnownSenders, addKnownSender, addMerchantDomain } from '../gmail/gmail-client.js';
@@ -119,6 +119,21 @@ router.post('/merchant-domains', (req, res) => {
   }
   addMerchantDomain(merchant, domain);
   res.json({ message: `Added domain mapping: ${merchant} → ${domain}` });
+});
+
+// Reconcile dates: fix Notion entries where date doesn't match email timestamp
+router.post('/reconcile-dates', async (_req, res) => {
+  if (!isAuthenticated()) {
+    return res.status(401).json({ error: 'Gmail not authenticated. Visit /api/auth first.' });
+  }
+
+  try {
+    const results = await reconcileDates();
+    res.json({ message: 'Date reconciliation complete', results });
+  } catch (err) {
+    logger.error('Date reconciliation failed', err.message);
+    res.status(500).json({ error: 'Reconciliation failed', details: err.message });
+  }
 });
 
 export default router;
