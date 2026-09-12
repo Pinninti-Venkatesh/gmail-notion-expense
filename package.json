@@ -1,9 +1,33 @@
 {
   "name": "gmail-notion-expense",
   "version": "1.0.0",
-  "description": "Polls Gmail for credit card transaction alerts and inserts them into a Notion database",
+  "description": "Reads bank transaction alert emails from Gmail, extracts them with a local LLM, and writes them to a Notion database",
   "type": "module",
   "main": "src/index.js",
+  "license": "MIT",
+  "author": "Venkatesh Pinninti",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pinninti-Venkatesh/gmail-notion-expense.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Pinninti-Venkatesh/gmail-notion-expense/issues"
+  },
+  "homepage": "https://github.com/Pinninti-Venkatesh/gmail-notion-expense#readme",
+  "keywords": [
+    "gmail",
+    "notion",
+    "expense-tracker",
+    "ollama",
+    "llm",
+    "personal-finance",
+    "automation",
+    "notion-api",
+    "self-hosted"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js"

@@ -2,7 +2,7 @@
 
 This app automatically reads your credit card transaction alert emails from Gmail, pulls out the merchant name, amount, and date, guesses a category (Food, Shopping, Travel, etc.), and adds a row to your Notion table. No manual entry needed.
 
----x
+---
 
 ## The Big Picture
 
@@ -193,93 +193,13 @@ Safety features:
 
 ---
 
-## Setup (Step by Step)
+## Setup
 
-### Step 1: Gmail API Credentials
+Setup instructions — Google Cloud OAuth, the Notion integration, the required
+database schema and every environment variable — live in the [README](README.md#setup).
+They are kept in one place so the two documents cannot drift apart.
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project (or use an existing one)
-3. Go to **APIs & Services > Library** and enable **Gmail API**
-4. Go to **APIs & Services > Credentials**
-5. Click **Create Credentials > OAuth client ID**
-6. Application type: **Web application**
-7. Add `http://localhost:3000/api/auth/callback` as an **Authorized redirect URI**
-8. Copy the **Client ID** and **Client Secret**
-
-### Step 2: Notion Integration
-
-1. Go to [notion.so/my-integrations](https://www.notion.so/my-integrations)
-2. Click **New integration**, give it a name, submit
-3. Copy the **Internal Integration Token**
-4. Create a new database in Notion (a full-page table) with these columns:
-
-| Column Name  | Type   |
-| ------------ | ------ |
-| Name         | Title  |
-| Amount       | Number |
-| Category     | Select |
-| Date         | Date   |
-| Payment Type | Select |
-| Bank         | Select |
-| Email ID     | Text   |
-
-5. Click the **...** menu on your database page > **Connections** > add your integration
-6. Copy the **database ID** from the page URL:
-   ```
-   https://notion.so/your-workspace/DATABASE_ID_HERE?v=...
-                                     ^^^^^^^^^^^^^^^^
-   ```
-
-### Step 3: Configure and Run
-
-```bash
-# 1. Install dependencies
-npm install
-
-# 2. Create your .env file
-cp .env.example .env
-```
-
-Edit `.env` with your values:
-
-```
-GMAIL_CLIENT_ID=your_client_id_from_step_1
-GMAIL_CLIENT_SECRET=your_client_secret_from_step_1
-GMAIL_REDIRECT_URI=http://localhost:3000/api/auth/callback
-NOTION_API_KEY=your_notion_token_from_step_2
-NOTION_DATABASE_ID=your_database_id_from_step_2
-PORT=3000
-POLL_INTERVAL_MINUTES=2
-```
-
-```bash
-# 3. Start the app
-npm run dev
-
-# 4. Open your browser and go to:
-#    http://localhost:3000/api/auth
-#    Sign in with the Gmail account that receives your bank alerts
-#    You should see: "Gmail authenticated successfully"
-
-# 5. The app is now polling every 2 minutes!
-```
-
-### Step 4: Verify
-
-```bash
-# Check health
-curl http://localhost:3000/api/health
-
-# Manually trigger a poll
-curl -X POST http://localhost:3000/api/sync
-
-# View category mappings
-curl http://localhost:3000/api/categories
-```
-
-Check your Notion table — new transactions should appear as rows.
-
----
+This document covers how the pieces work once it is running.
 
 ## How Dedup Works (Why You Won't Get Duplicates)
 
